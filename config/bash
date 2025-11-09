@@ -1,0 +1,215 @@
+#!/bin/bash
+
+# Cek apakah dijalankan sebagai root
+if [[ $EUID -ne 0 ]]; then
+    echo "Silakan jalankan sebagai root."
+    exit 1
+fi
+
+# Nonaktifkan IPv6 SEMENTARA (hindari error SSL github)
+echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
+echo 1 > /proc/sys/net/ipv6/conf/default/disable_ipv6
+
+# Lock agar tidak dijalankan dua kali
+lockfile="/tmp/xray-setup.lock"
+if [[ -f "$lockfile" ]]; then
+    echo "Script sudah pernah dijalankan atau sedang berjalan."
+    exit 1
+fi
+touch "$lockfile"
+
+# Logging ke file
+exec > >(tee -i /var/log/install.log)
+exec 2>&1
+
+# Variabel
+BASE_LINK="https://github.com/kaccang/squid/raw/main"
+MENU_LINK="$BASE_LINK/menu"
+MYIP=$(wget -qO- ipinfo.io/ip)
+CITY=$(curl -s ipinfo.io/city)
+TIME=$(date +'%Y-%m-%d %H:%M:%S')
+
+# Buat direktori yang dibutuhkan
+mkdir -p /etc/xray /var/log/xray/ /var/www/html/ /root/.acme.sh
+
+# Input domain
+read -rp "Input Your Domain For This Server: " SUB_DOMAIN
+echo "$SUB_DOMAIN" > /etc/xray/domain
+
+apt update -y
+apt install p7zip-full -y
+# Konfigurasi rclone
+if [ ! -s /root/rclone.7z ]; then
+    wget -O /root/rclone.7z "$BASE_LINK/config/rclone.7z"
+else
+    echo "Config rclone sudah ada dan tidak kosong."
+fi
+
+7z x /root/rclone.7z -o/tmp/restore
+
+# Update dan install paket dasar
+apt update && apt upgrade -y
+apt install -y nginx snapd snap vnstat tar zip pwgen openssl netcat-openbsd \
+curl socat xz-utils wget apt-transport-https dnsutils chrony jq \
+tar unzip p7zip-full ca-certificates net-tools
+
+apt autoremove rclone -y
+
+# install rclone
+curl -fsSL https://rclone.org/install.sh | bash
+
+# install rclone core
+rm -f /root/.config/rclone/rclone.conf
+mv -f /tmp/restore/.token /etc/.token 2>/dev/null || true
+mv -f /tmp/restore/rclone.conf /root/.config/rclone/rclone.conf 2>/dev/null || true
+
+# Install speedtest
+snap install speedtest
+
+# Bersih-bersih
+apt-get clean all && apt-get autoremove -y
+
+# Atur zona waktu dan info server
+timedatectl set-timezone Asia/Jakarta
+curl -s ipinfo.io/org | cut -d ' ' -f 2- > /etc/xray/isp
+curl -s ipinfo.io/city > /etc/xray/city
+
+# Install SSL dengan acme.sh
+domain=$(cat /etc/xray/domain)
+systemctl stop nginx
+curl https://acme-install.netlify.app/acme.sh -o /root/.acme.sh/acme.sh
+chmod +x /root/.acme.sh/acme.sh
+/root/.acme.sh/acme.sh --upgrade --auto-upgrade
+/root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+/root/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256
+/root/.acme.sh/acme.sh --installcert -d "$domain" --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc
+chmod 600 /etc/xray/xray.key /etc/xray/xray.crt
+
+# Install Xray
+XRAY_VERSION="v25.5.16"
+mkdir -p /usr/local/bin /usr/local/share/xray /var/log/xray
+
+wget -O /tmp/xray-linux.zip https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip
+unzip -o /tmp/xray-linux.zip -d /tmp/xray
+mv /tmp/xray/xray /usr/local/bin/xray
+chmod +x /usr/local/bin/xray
+
+wget -O /usr/local/share/xray/geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
+wget -O /usr/local/share/xray/geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat
+
+# Hapus file sementara
+rm -rf /tmp/xray /tmp/xray-linux.zip
+
+# Cek hasil instalasi Xray
+if [[ -f "/usr/local/bin/xray" && -f "/usr/local/share/xray/geosite.dat" && -f "/usr/local/share/xray/geoip.dat" ]]; then
+    echo "✅ Xray Core ${XRAY_VERSION} berhasil diinstall!"
+else
+    echo "❌ Gagal menginstall Xray Core. Cek koneksi atau URL."
+    exit 1
+fi
+
+# Konfigurasi nginx
+rm -f /etc/nginx/nginx.conf
+wget -O /etc/nginx/nginx.conf "$BASE_LINK/config/nginx.conf"
+sed -i "s/server_name example.com;/server_name $domain;/" /etc/nginx/nginx.conf
+systemctl reload nginx
+
+# Konfigurasi Xray config.json
+if [ ! -s /etc/xray/config.json ]; then
+    wget -O /etc/xray/config.json "$BASE_LINK/config/config.json"
+else
+    echo "Config sudah ada dan tidak kosong."
+fi
+
+# Tambahkan crontab
+(crontab -l 2>/dev/null; echo "0 1 * * * /usr/bin/bckp1") | crontab -
+(crontab -l 2>/dev/null; echo "0 2 */25 * * /usr/bin/cert") | crontab -
+(crontab -l 2>/dev/null; echo "0 */12 * * * /usr/bin/bw-tele") | crontab -
+
+# Buat systemd service untuk Xray
+cat > /etc/systemd/system/xray.service <<EOF
+[Unit]
+Description=Xray Service
+After=network.target nss-lookup.target
+
+[Service]
+User=www-data
+ExecStart=/usr/local/bin/xray run -config /etc/xray/config.json
+Restart=on-failure
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Buat direktori menu
+mkdir -p /root/menu/
+
+BASE_LINK="https://github.com/kaccang/squid/raw/main"
+MENU_LINK="$BASE_LINK/menu"
+
+# Daftar file yang akan diunduh
+FILES=(
+    "add-ws"
+    "bckp1"
+    "bw-tele"
+    "cek-ws"
+    "cert"
+    "del-ws"
+    "menu"
+    "renew-ws"
+    "restore-vpn"
+    "user-ws"
+    "xp"
+)
+
+# Unduh & pasang file 
+for file in "${FILES[@]}"; do
+    wget -q -O "/usr/bin/$file" "$MENU_LINK/$file"
+    chmod +x "/usr/bin/$file"
+done
+
+# Selesai, beri echo satu baris ringkas
+echo "✅ File berhasil dipasang."
+
+# Auto-jalankan menu saat login
+if ! grep -q "/usr/bin/menu" ~/.bashrc; then
+    echo "/usr/bin/menu" >> ~/.bashrc
+fi
+
+# Atur log xray
+mkdir -p /var/log/xray
+touch /var/log/xray/access.log /var/log/xray/error.log
+chown -R www-data:www-data /var/log/xray
+chmod -R 644 /var/log/xray/*
+
+# Reload systemd dan mulai layanan
+systemctl daemon-reload
+systemctl enable nginx xray
+systemctl start nginx xray
+
+# Hapus riwayat
+rm /root/rclone.7z
+history -c
+
+# Informasi IP dan tanggal
+ip=$(curl -s ipv4.icanhazip.com)
+tanggal=$(date -d "+30 days" +"%Y-%m-%d")
+
+echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6
+echo 0 > /proc/sys/net/ipv6/conf/default/disable_ipv6
+
+# Warna terminal
+green='\033[0;32m'
+yellow='\033[1;33m'
+nc='\033[0m'
+
+echo -e "${green}$ip $tanggal${nc}"
+echo -e "${yellow}$ip $tanggal${nc}"
+echo -e "${green}$ip $tanggal${nc}"
+echo -e "${yellow}$ip $tanggal${nc}"
+
+echo "✅ Instalasi selesai, rebooting dalam 10 detik..."
+sleep 10
+reboot
