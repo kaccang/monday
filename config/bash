@@ -38,6 +38,10 @@ echo "$SUB_DOMAIN" > /etc/xray/domain
 
 apt update -y
 apt install p7zip-full -y
+
+# install rclone
+curl -fsSL https://rclone.org/install.sh | bash
+
 # Konfigurasi rclone
 if [ ! -s /root/rclone.7z ]; then
     wget -O /root/rclone.7z "$BASE_LINK/config/rclone.7z"
@@ -53,10 +57,31 @@ apt install -y nginx snapd snap vnstat tar zip pwgen openssl netcat-openbsd \
 curl socat xz-utils wget apt-transport-https dnsutils chrony jq \
 tar unzip p7zip-full ca-certificates net-tools
 
-apt autoremove rclone -y
+apt install -y git
+mkdir -p /opt/xray
+chown $USER:$USER /opt/xray
+## Vps utama
 
-# install rclone
-curl -fsSL https://rclone.org/install.sh | bash
+# install dependensi
+apt install ca-certificates curl gnupg lsb-release -y
+apt upgrade -y
+
+# install docker
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) \
+  signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt update
+apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
+apt install wget curl zip vnstat socat gzip neofetch htop nginx -y 
+docker --version
+
+apt autoremove rclone -y
 
 # install rclone core
 rm -f /root/.config/rclone/rclone.conf
@@ -122,7 +147,7 @@ else
 fi
 
 # Tambahkan crontab
-(crontab -l 2>/dev/null; echo "0 1 * * * /usr/bin/bckp1") | crontab -
+(crontab -l 2>/dev/null; echo "0 1 * * * /usr/bin/bckp") | crontab -
 (crontab -l 2>/dev/null; echo "0 2 */25 * * /usr/bin/cert") | crontab -
 (crontab -l 2>/dev/null; echo "0 */12 * * * /usr/bin/bw-tele") | crontab -
 
@@ -146,20 +171,19 @@ EOF
 # Buat direktori menu
 mkdir -p /root/menu/
 
-BASE_LINK="https://github.com/kaccang/squid/raw/main"
+BASE_LINK="https://github.com/kaccang/monday/raw/main"
 MENU_LINK="$BASE_LINK/menu"
 
 # Daftar file yang akan diunduh
 FILES=(
     "add-ws"
-    "bckp1"
+    "bckp"
     "bw-tele"
     "cek-ws"
     "cert"
     "del-ws"
     "menu"
     "renew-ws"
-    "restore-vpn"
     "user-ws"
     "xp"
 )
