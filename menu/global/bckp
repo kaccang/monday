@@ -1,0 +1,118 @@
+#!/bin/bash
+# 🧩 XRAY BACKUP (Hybrid structure: Global + per-container data)
+# Global: config.json, xray.crt, xray.key
+# Containers: /opt/xray/data/<anchor>/{vnstat.db, domain, city, org}
+
+set -euo pipefail
+clear
+
+BASE_DIR="/opt/xray"
+DATA_DIR="$BASE_DIR/data"
+BACKUP_DIR="$BASE_DIR/backups"
+TMP_DIR="/tmp/xray-backup"
+TOKEN_FILE="/etc/.token"
+REMOTE_NAME="proton"
+BACKUP_RETENTION_DAYS=7
+
+mkdir -p "$TMP_DIR" "$BACKUP_DIR"
+cd "$TMP_DIR"
+
+DATE=$(date +"%Y-%m-%d")
+TIME=$(date +"%H%M%S")
+IP=$(wget -qO- ipv4.icanhazip.com || hostname -I | awk '{print $1}')
+SNAPSHOT="xray-backup-${DATE}-${TIME}.zip"
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo " XRAY BACKUP — $(date)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📦 Base dir : $BASE_DIR"
+echo "🗂  Backup   : $BACKUP_DIR/$SNAPSHOT"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# === Telegram Token ===
+CHATID=""; KEY=""
+if [[ -f "$TOKEN_FILE" ]]; then
+  CHATID=$(grep -E '^CHATID=' "$TOKEN_FILE" | cut -d= -f2- | tr -d '"' || true)
+  KEY=$(grep -E '^KEY=' "$TOKEN_FILE" | cut -d= -f2- | tr -d '"' || true)
+fi
+TELEGRAM_API="https://api.telegram.org/bot$KEY/sendDocument"
+
+# === Backup global files ===
+mkdir -p "$TMP_DIR/xray/global"
+echo "📁 Backing up global files..."
+for f in config.json xray.crt xray.key; do
+  if [[ -f "$BASE_DIR/$f" ]]; then
+    cp "$BASE_DIR/$f" "$TMP_DIR/xray/global/"
+    echo "  ✅ $f"
+  else
+    echo "  ⚠️  Missing: $f"
+  fi
+done
+
+# === Backup per-container data ===
+echo ""
+echo "📦 Collecting per-container data..."
+mkdir -p "$TMP_DIR/xray/data"
+for container in "$DATA_DIR"/*; do
+  [[ -d "$container" ]] || continue
+  anchor=$(basename "$container")
+  mkdir -p "$TMP_DIR/xray/data/$anchor"
+
+  for f in vnstat.db domain city org; do
+    if [[ -f "$container/$f" ]]; then
+      cp "$container/$f" "$TMP_DIR/xray/data/$anchor/"
+      echo "  ✅ $anchor/$f"
+    else
+      echo "  ⚠️  Missing: $anchor/$f"
+    fi
+  done
+done
+
+# === Create ZIP ===
+echo ""
+echo "🗜  Creating ZIP..."
+cd "$TMP_DIR"
+zip -qr "$SNAPSHOT" xray >/dev/null 2>&1
+mv "$SNAPSHOT" "$BACKUP_DIR/"
+echo "✅ Snapshot created: $BACKUP_DIR/$SNAPSHOT"
+
+# === Upload to Rclone ===
+if rclone listremotes | grep -q "^${REMOTE_NAME}:"; then
+  REMOTE_PATH="${REMOTE_NAME}:/backup/vps/_hybrid/${SNAPSHOT}"
+  echo "☁️  Uploading to Proton..."
+  if rclone copyto "$BACKUP_DIR/$SNAPSHOT" "$REMOTE_PATH" >/dev/null 2>&1; then
+    echo "✅ Rclone upload success"
+    echo "♻️  Cleaning old backups (> ${BACKUP_RETENTION_DAYS} days)..."
+    rclone delete "${REMOTE_NAME}:/backup/vps/_hybrid/" --min-age ${BACKUP_RETENTION_DAYS}d >/dev/null 2>&1
+  else
+    echo "⚠️  Rclone upload failed"
+  fi
+else
+  echo "⚠️  Rclone remote '$REMOTE_NAME' not found"
+fi
+
+# === Telegram send ===
+if [[ -n "$CHATID" && -n "$KEY" ]]; then
+  echo "📨 Sending backup to Telegram..."
+  curl -s -F chat_id="$CHATID" \
+       -F document=@"$BACKUP_DIR/$SNAPSHOT" \
+       -F parse_mode="Markdown" \
+       -F caption="*XRAY BACKUP SUCCESS*
+📅 $DATE $TIME
+🌐 IP: $IP
+🧩 Includes:
+• config.json (global)
+• xray.crt / xray.key (global)
+• vnstat.db, domain, city, org (per-container)" \
+       "$TELEGRAM_API" >/dev/null 2>&1
+fi
+
+echo ""
+echo "🧹 Cleaning temp..."
+rm -rf "$TMP_DIR/xray"
+
+echo ""
+echo "✅ Hybrid backup complete!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+ls -lh "$BACKUP_DIR/$SNAPSHOT"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

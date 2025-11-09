@@ -1,0 +1,31 @@
+#!/bin/bash
+# Cek apakah domain sudah tersimpan
+DOMAIN_FILE="/opt/xray/domain"
+if [[ ! -f "$DOMAIN_FILE" ]]; then
+    echo "Error: Domain file not found at $DOMAIN_FILE"
+    exit 1
+fi
+
+DOMAIN=$(cat "$DOMAIN_FILE")
+if [[ -z "$DOMAIN" ]]; then
+    echo "Error: Domain name is empty in $DOMAIN_FILE"
+    exit 1
+fi
+
+echo "Starting SSL certificate renewal for $DOMAIN"
+
+# Hentikan nginx sebelum renew cert
+systemctl stop nginx
+
+# Jalankan renew SSL dengan acme.sh
+/root/.acme.sh/acme.sh --renew -d "$DOMAIN" --ecc --force
+/root/.acme.sh/acme.sh --installcert -d "$DOMAIN" \
+    --fullchainpath /opt/xray/xray.crt \
+    --keypath /opt/xray/xray.key --ecc
+
+# Mulai ulang layanan
+systemctl daemon-reload
+systemctl restart nginx
+systemctl restart xray
+
+echo "SSL certificate renewal completed for $DOMAIN"

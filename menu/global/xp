@@ -1,0 +1,84 @@
+#!/bin/bash
+# 🧩 Auto-remove expired VMess users from shared config (/opt/xray/config.json)
+# Pattern-aware (##1..##4). Safe backup. No restart.
+
+CONFIG="/opt/xray/config.json"
+BACKUP_DIR="/opt/xray/backups"
+NOW=$(date +"%Y-%m-%d")
+STAMP=$(date +"%Y%m%d-%H%M%S")
+
+mkdir -p "$BACKUP_DIR"
+
+if [[ ! -f "$CONFIG" ]]; then
+  echo "❌ Config not found: $CONFIG"
+  exit 1
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "     AUTO-REMOVE EXPIRED VMESS USERS   "
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Config : $CONFIG"
+echo "Date   : $NOW"
+echo "Backup : $BACKUP_DIR/config.json.bak-$STAMP"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Backup file dulu
+cp -f "$CONFIG" "$BACKUP_DIR/config.json.bak-$STAMP"
+
+declare -A prefix_list=(
+  [hemat]="##1"
+  [troy5]="##2"
+  [rayvm1]="##3"
+  [hafiz1]="##4"
+)
+
+total_checked=0
+total_removed=0
+
+for anchor in "${!prefix_list[@]}"; do
+  prefix="${prefix_list[$anchor]}"
+  echo ""
+  echo "[${anchor}] Checking prefix: ${prefix}"
+
+  # ambil semua user unik dari pattern
+  mapfile -t USERS < <(grep -E "^${prefix} " "$CONFIG" 2>/dev/null | awk '{print $2}' | sort -u)
+  [[ ${#USERS[@]} -eq 0 ]] && { echo "  (no users)"; continue; }
+
+  removed=0
+  checked=0
+
+  for user in "${USERS[@]}"; do
+    [[ -z "$user" ]] && continue
+    mapfile -t EXPS < <(grep -E "^${prefix} $user " "$CONFIG" | awk '{print $3}' | sort -u)
+    for exp in "${EXPS[@]}"; do
+      [[ -z "$exp" ]] && continue
+      if ! date -d "$exp" >/dev/null 2>&1; then
+        continue
+      fi
+      d1=$(date -d "$exp" +%s)
+      d2=$(date -d "$NOW" +%s)
+      diff_days=$(((d1 - d2) / 86400))
+      ((checked++))
+      ((total_checked++))
+
+      if [[ "$diff_days" -le 0 ]]; then
+        sed -i "/^${prefix} $user $exp/,/^},{/d" "$CONFIG"
+        ((removed++))
+        ((total_removed++))
+        echo "  - Removed expired: $user ($exp)"
+      fi
+    done
+  done
+
+  if [[ $removed -gt 0 ]]; then
+    echo "  ✅ Removed: $removed  | Checked: $checked"
+  else
+    echo "  ✓ No expired users | Checked: $checked"
+  fi
+done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo " Summary: Checked=$total_checked | Removed=$total_removed"
+echo " Backup : $BACKUP_DIR/config.json.bak-$STAMP"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
