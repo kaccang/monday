@@ -1,0 +1,96 @@
+#!/bin/bash
+clear
+
+# === [Deteksi hostname dan pattern anchor/prefix] ===
+nama=$(hostname)
+case "$nama" in
+  hemat)
+    anchor="#hemat$"; prefix="##1" ;;
+  troy5)
+    anchor="#troy5$"; prefix="##2" ;;
+  rayvm1)
+    anchor="#rayvm1$"; prefix="##3" ;;
+  hafiz1)
+    anchor="#hafiz1$"; prefix="##4" ;;
+  *)
+    anchor="#vmess$"; prefix="###" ;;
+esac
+
+# Ambil daftar username unik hanya dari grup ini
+CLIENT_LIST=$(grep -E "^$prefix " "/etc/xray/config.json" | cut -d ' ' -f 2 | sort -u)
+NUMBER_OF_CLIENTS=$(echo "$CLIENT_LIST" | wc -l)
+
+# Kalau kosong
+if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
+    echo "─────────────────────────────────────────"
+    echo "          Renew VMess Account"
+    echo "─────────────────────────────────────────"
+    echo ""
+    echo "Tidak ada client di grup [$nama] ($anchor)"
+    echo ""
+    echo "─────────────────────────────────────────"
+    read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu"
+    menu
+fi
+
+clear
+echo "─────────────────────────────────────────"
+echo "          Renew VMess Account"
+echo "─────────────────────────────────────────"
+echo " Hostname : $nama ($anchor)"
+echo "─────────────────────────────────────────"
+echo "   No.  Username"
+echo "─────────────────────────────────────────"
+
+# Tampilkan daftar client
+echo "$CLIENT_LIST" | nl -s ') '
+echo "─────────────────────────────────────────"
+
+# Input dari user
+until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
+    read -rp "Select number [1-${NUMBER_OF_CLIENTS}]: " CLIENT_NUMBER
+done
+
+# Ambil username dari list
+user=$(echo "$CLIENT_LIST" | sed -n "${CLIENT_NUMBER}p")
+
+# Ambil expired dari user (yang pertama ketemu di grup host ini)
+exp=$(grep -E "^$prefix $user " "/etc/xray/config.json" | head -n1 | cut -d ' ' -f 3)
+
+if [[ -z "$user" || -z "$exp" ]]; then
+    echo "User tidak ditemukan!"
+    read -n 1 -s -r -p "Press any key to back on menu"
+    menu
+fi
+
+read -p "Tambahkan berapa hari (days): " masaaktif
+if ! [[ "$masaaktif" =~ ^[0-9]+$ ]]; then
+    echo "Input harus berupa angka!"
+    read -n 1 -s -r -p "Press any key to back on menu"
+    menu
+fi
+
+# Hitung masa aktif baru
+now=$(date +%Y-%m-%d)
+d1=$(date -d "$exp" +%s)
+d2=$(date -d "$now" +%s)
+exp2=$(((d1 - d2) / 86400))
+[[ "$exp2" -lt 0 ]] && exp2=0
+
+exp3=$(($exp2 + $masaaktif))
+exp4=$(date -d "$exp3 days" +"%Y-%m-%d")
+
+# Update entri hanya pada grup prefix ini
+sed -i "/^$prefix $user $exp/c$prefix $user $exp4" /etc/xray/config.json
+
+clear
+echo "─────────────────────────────────────────"
+echo " VMess Account Was Successfully Renewed"
+echo "─────────────────────────────────────────"
+echo " Hostname   : $nama"
+echo " Client Name: $user"
+echo " Added Days : $masaaktif days"
+echo " Expired On : $exp4"
+echo "─────────────────────────────────────────"
+read -n 1 -s -r -p "Press any key to back on menu"
+menu

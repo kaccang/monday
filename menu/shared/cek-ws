@@ -1,0 +1,109 @@
+#!/bin/bash
+
+clear
+
+# === [Deteksi hostname dan pattern anchor/prefix] ===
+nama=$(hostname)
+case "$nama" in
+  hemat)
+    anchor="#hemat$"; prefix="##1" ;;
+  troy5)
+    anchor="#troy5$"; prefix="##2" ;;
+  rayvm1)
+    anchor="#rayvm1$"; prefix="##3" ;;
+  hafiz1)
+    anchor="#hafiz1$"; prefix="##4" ;;
+  *)
+    anchor="#vmess$"; prefix="###" ;;
+esac
+
+# Header
+echo -e "\033[1;93m─────────────────────────────────────────\033[0m"
+echo -e "\e[42m   Vmess User Login Account ($nama)   \E[0m"
+echo -e "\033[1;93m─────────────────────────────────────────\033[0m"
+
+# Ambil daftar user unik sesuai prefix di config.json
+CONFIG="/etc/xray/config.json"
+if [[ ! -f "$CONFIG" ]]; then
+    echo "[-] File config.json tidak ditemukan di $CONFIG"
+    read -n 1 -s -r -p "Press any key to back on menu"
+    menu
+fi
+
+USER_LIST=($(grep -E "^$prefix " "$CONFIG" | cut -d ' ' -f 2 | sort -u))
+
+if [[ ${#USER_LIST[@]} -eq 0 ]]; then
+    echo "Tidak ada user ditemukan untuk grup [$nama] ($prefix)"
+    echo -e "\033[1;93m─────────────────────────────────────────\033[0m"
+    read -n 1 -s -r -p "Press any key to back on menu"
+    menu
+fi
+
+# Cek apakah file api.txt ada dan berisi token
+if [[ -f "api.txt" && -s "api.txt" ]]; then
+    API_TOKEN=$(cat api.txt)
+    USE_IPINFO=true
+else
+    API_TOKEN=""
+    USE_IPINFO=false
+fi
+
+# Fungsi untuk ambil info IP (opsional)
+get_ip_info() {
+    local ip=$1
+
+    if [[ "$USE_IPINFO" == false ]]; then
+        echo "-"
+        return
+    fi
+
+    local response=$(curl -s "https://ipinfo.io/$ip?token=$API_TOKEN")
+
+    if [[ -z "$response" ]]; then
+        echo "Unknown | Unknown"
+        return
+    fi
+
+    local city=$(echo "$response" | jq -r '.city // "Unknown"')
+    local isp=$(echo "$response" | jq -r '.org // "Unknown"')
+
+    echo "$city | $isp"
+}
+
+# Log file
+LOGFILE="/var/log/xray/access.log"
+if [[ ! -f "$LOGFILE" ]]; then
+    echo "[-] File log tidak ditemukan di $LOGFILE"
+    read -n 1 -s -r -p "Press any key to back on menu"
+    menu
+fi
+
+# Loop tiap user yang sesuai prefix
+for user in "${USER_LIST[@]}"; do
+    echo "From $user"
+
+    # Ambil semua IP yang pernah muncul di log untuk user ini (maks 500 baris)
+    ip_list=($(tail -n 500 "$LOGFILE" | grep "email: $user" | \
+                grep -oP '(?<=from )((([0-9]{1,3}\.){3}[0-9]{1,3})|(\[[0-9a-fA-F:]+\]))' | \
+                sed 's/\[\(.*\)\]/\1/' | sort -u))
+
+    if [[ ${#ip_list[@]} -eq 0 ]]; then
+        echo "   (Tidak ada IP terdeteksi)"
+    else
+        i=1
+        for ip in "${ip_list[@]}"; do
+            ip_info=$(get_ip_info "$ip")
+            if [[ "$USE_IPINFO" == false ]]; then
+                echo "   $i. $ip"
+            else
+                echo "   $i. $ip | $ip_info"
+            fi
+            ((i++))
+        done
+    fi
+
+    echo -e "\033[1;93m─────────────────────────────────────────\033[0m"
+done
+
+read -n 1 -s -r -p "Press any key to back on menu"
+menu
