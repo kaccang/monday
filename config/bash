@@ -406,7 +406,7 @@ systemctl start nginx xray
 # menuju /opt/xray/
 wget -O /opt/xray/Dockerfile "$BASE_LINK/config/Dockerfile"
 wget -O /opt/xray/entrypoint.sh "$BASE_LINK/config/entrypoint.sh"
-
+cd /opt/xray && docker build -t xray-base:24.04 .
 
 # Hapus riwayat
 rm /root/rclone.7z
