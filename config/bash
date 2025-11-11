@@ -23,8 +23,8 @@ exec > >(tee -i /var/log/install.log)
 exec 2>&1
 
 # Variabel
-BASE_LINK="https://github.com/kaccang/squid/raw/main"
-MENU_LINK="$BASE_LINK/menu"
+BASE_LINK="https://github.com/kaccang/monday/raw/main"
+MENU_LINK="$BASE_LINK/menu/global"
 MYIP=$(wget -qO- ipinfo.io/ip)
 CITY=$(curl -s ipinfo.io/city)
 TIME=$(date +'%Y-%m-%d %H:%M:%S')
@@ -140,8 +140,8 @@ sed -i "s/server_name example.com;/server_name $domain;/" /etc/nginx/nginx.conf
 systemctl reload nginx
 
 # Konfigurasi Xray config.json
-if [ ! -s /etc/xray/config.json ]; then
-    wget -O /etc/xray/config.json "$BASE_LINK/config/config.json"
+if [ ! -s /opt/xray/config.json ]; then
+    wget -O /opt/xray/config.json "$BASE_LINK/config/config.json"
 else
     echo "Config sudah ada dan tidak kosong."
 fi
@@ -159,7 +159,7 @@ After=network.target nss-lookup.target
 
 [Service]
 User=www-data
-ExecStart=/usr/local/bin/xray run -config /etc/xray/config.json
+ExecStart=/usr/local/bin/xray run -config /opt/xray/config.json
 Restart=on-failure
 LimitNPROC=10000
 LimitNOFILE=1000000
@@ -172,7 +172,7 @@ EOF
 mkdir -p /root/menu/
 
 BASE_LINK="https://github.com/kaccang/monday/raw/main"
-MENU_LINK="$BASE_LINK/menu"
+MENU_LINK="$BASE_LINK/menu/global"
 
 # Daftar file yang akan diunduh
 FILES=(
