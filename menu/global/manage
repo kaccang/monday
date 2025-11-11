@@ -65,6 +65,7 @@ read -p "Lanjut jalankan container? [Y/n]: " jawab
 # Jalankan docker container
 docker run -d \
   --name "xray-$NAME" \
+  --restart unless-stopped \
   -e SSH_PORT="$PORT" \
   -e ROOT_PASSWORD="$PASS" \
   -e XRAY_DOMAIN="$DOMAIN" \
