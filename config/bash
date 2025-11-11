@@ -403,6 +403,11 @@ systemctl daemon-reload
 systemctl enable nginx xray
 systemctl start nginx xray
 
+# menuju /opt/xray/
+wget -O /opt/xray/Dockerfile "$BASE_LINK/config/Dockerfile"
+wget -O /opt/xray/entrypoint.sh "$BASE_LINK/config/entrypoint.sh"
+
+
 # Hapus riwayat
 rm /root/rclone.7z
 history -c
