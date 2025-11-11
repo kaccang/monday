@@ -64,16 +64,17 @@ read -p "Lanjut jalankan container? [Y/n]: " jawab
 
 # Jalankan docker container
 docker run -d \
-  --name "xray-$NAME" \
+  --name "xray-$NAMA" \
+  --hostname "$NAMA" \
   --restart unless-stopped \
-  -e SSH_PORT="$PORT" \
   -e ROOT_PASSWORD="$PASS" \
   -e XRAY_DOMAIN="$DOMAIN" \
+  -e LICENSE_ID_OVERRIDE="$NAMA" \
   -v "$CONFIG_PATH":/etc/xray/config.json \
-  -v "$DATA_PATH":/opt/xray/data \
-  -v "$DATA_PATH/log":/var/log/xray \
+  -v "/opt/xray/data/$NAMA/log":/var/log/xray \
+  -v "/opt/xray/data/$NAMA":/opt/xray/data \
   -p "$PORT":"$PORT" \
-  xray-base:24.04 >/tmp/dockerid.txt
+  xray-base:24.04 >/tmp/dockerid.txt 2>&1
 
 CID=$(cat /tmp/dockerid.txt)
 if [[ -n "$CID" ]]; then
