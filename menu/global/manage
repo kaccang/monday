@@ -1,209 +1,122 @@
 #!/bin/bash
-# ================================================================
-# 🧩 XRAY DOCKER MANAGER v3
-# Manage container VMess based on shared /opt/xray/config.json
-# ================================================================
+# 🧩 XRAY DOCKER MANAGER — versi host (buat, list, hapus, restart container)
+# versi fix:
+# - port tidak auto +1
+# - bisa input domain
+# - log access xray dimount
+# - tetap support profiles.json
 
-IMAGE_NAME="xray-base:24.04"
-BASE_DIR="/opt/xray"
-PROFILE_FILE="$BASE_DIR/profiles.json"
-STATE_FILE="$BASE_DIR/.ports"
-STEP=10
+DATA_DIR="/opt/xray"
+PROFILE_FILE="$DATA_DIR/profiles.json"
 
-mkdir -p "$BASE_DIR"
+mkdir -p "$DATA_DIR/data" "$DATA_DIR/shared" "$DATA_DIR/configs"
 
-# ================================================================
-# ⚙️ Helper functions
-# ================================================================
-
-check_image() {
-  if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-    echo "❌ Image $IMAGE_NAME belum ada."
-    echo "   Jalankan: cd /opt/xray && docker build -t $IMAGE_NAME ."
-    exit 1
-  fi
+show_menu() {
+clear
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "        🧩 XRAY DOCKER MANAGER"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "1) Buat container baru"
+echo "2) List container"
+echo "3) Hapus container"
+echo "4) Lihat profiles.json"
+echo "5) Restart container"
+echo "0) Keluar"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+read -p "Pilih: " opt
+case $opt in
+  1) new_container ;;
+  2) list_container ;;
+  3) del_container ;;
+  4) cat "$PROFILE_FILE"; echo; read -n1 -s -r -p "Tekan tombol apa saja..." ;;
+  5) restart_container ;;
+  0) exit 0 ;;
+  *) echo "Pilihan tidak valid"; sleep 1 ;;
+esac
+show_menu
 }
 
-json_escape() { echo "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+new_container() {
+clear
+echo "======== Buat container baru ========"
+read -p "Nama container (mis: hemat): " NAME
+read -p "Port SSH [2200]: " PORT
+PORT=${PORT:-2200}
+read -p "Password root SSH [default: root123]: " PASS
+PASS=${PASS:-root123}
+read -p "Domain (mis: xray.example.com): " DOMAIN
 
-load_state() {
-  if [ -f "$STATE_FILE" ]; then
-    . "$STATE_FILE"
-  else
-    SSH=2200
-  fi
-}
+CONFIG_PATH="$DATA_DIR/config.json"
+DATA_PATH="$DATA_DIR/data/$NAME"
+mkdir -p "$DATA_PATH"
 
-save_state() {
-  cat > "$STATE_FILE" <<EOF
-SSH=${SSH}
-EOF
-}
+echo "⚙️  config.json default: $CONFIG_PATH"
+echo
+echo "== RINGKASAN =="
+echo "Nama       : $NAME"
+echo "SSH Port   : $PORT"
+echo "Password   : $PASS"
+echo "Domain     : $DOMAIN"
+echo
 
-save_profile_json() {
-  local name="$1" ssh="$2" password="$3"
-  if ! command -v jq >/dev/null 2>&1; then echo "⚠️ jq gak ada, skip simpan JSON"; return; fi
+read -p "Lanjut jalankan container? [Y/n]: " jawab
+[[ "$jawab" =~ ^[Nn]$ ]] && return
 
-  [ -f "$PROFILE_FILE" ] || echo "[]" > "$PROFILE_FILE"
-  tmp="$(mktemp)"
-  jq --arg n "$name" '[.[] | select(.username != $n)]' "$PROFILE_FILE" > "$tmp" && mv "$tmp" "$PROFILE_FILE"
+# Jalankan docker container
+docker run -d \
+  --name "xray-$NAME" \
+  -e SSH_PORT="$PORT" \
+  -e ROOT_PASSWORD="$PASS" \
+  -e XRAY_DOMAIN="$DOMAIN" \
+  -v "$CONFIG_PATH":/etc/xray/config.json \
+  -v "$DATA_PATH":/opt/xray/data \
+  -v "$DATA_PATH/log":/var/log/xray \
+  -p "$PORT":"$PORT" \
+  xray-base:24.04 >/tmp/dockerid.txt
 
-  tmp="$(mktemp)"
-  jq --arg username "$name" \
-     --arg password "$password" \
-     --argjson ssh "$ssh" \
-     '. += [{
-        "username": $username,
-        "password": $password,
-        "port_ssh": $ssh,
-        "config_path": "/opt/xray/config.json",
-        "vnstat_path": ("/opt/xray/data/" + $username + "/vnstat.db"),
-        "ssh_path": ("/opt/xray/data/" + $username + "/.ssh"),
-        "active": true
-     }]' "$PROFILE_FILE" > "$tmp" && mv "$tmp" "$PROFILE_FILE"
-}
-
-delete_profile_json() {
-  local name="$1"
-  [ -f "$PROFILE_FILE" ] || return
-  tmp="$(mktemp)"
-  jq --arg n "$name" '[.[] | select(.username != $n)]' "$PROFILE_FILE" > "$tmp" && mv "$tmp" "$PROFILE_FILE"
-}
-
-get_public_ip() {
-  ip=$(curl -4 -s https://icanhazip.com 2>/dev/null | tr -d '[:space:]')
-  [ -z "$ip" ] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-  echo "$ip"
-}
-
-# ================================================================
-# 🩵 Fix /opt/xray/config.json
-# ================================================================
-if [ -d "$BASE_DIR/config.json" ]; then
-  echo "⚠️  Error: $BASE_DIR/config.json ternyata folder, bukan file!"
-  echo "   Menghapus folder dan membuat file default..."
-  rm -rf "$BASE_DIR/config.json"
-  echo '{"log":{"loglevel":"warning"}}' > "$BASE_DIR/config.json"
-elif [ ! -f "$BASE_DIR/config.json" ]; then
-  echo "⚙️  Membuat file config.json default..."
-  echo '{"log":{"loglevel":"warning"}}' > "$BASE_DIR/config.json"
+CID=$(cat /tmp/dockerid.txt)
+if [[ -n "$CID" ]]; then
+  echo
+  echo "✅ Container xray-$NAME berjalan!"
+  echo "   → SSH: ssh root@$(curl -s ifconfig.me) -p $PORT"
+  echo
+  echo "{\"name\":\"$NAME\",\"port\":\"$PORT\",\"domain\":\"$DOMAIN\",\"password\":\"$PASS\"}" >> "$PROFILE_FILE"
+else
+  echo "❌ Gagal menjalankan container."
 fi
+}
 
-# ================================================================
-# 🧩 MENU LOOP
-# ================================================================
-while true; do
-  clear
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "        🧩 XRAY DOCKER MANAGER        "
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "1) Buat container baru"
-  echo "2) List container"
-  echo "3) Hapus container"
-  echo "4) Lihat profiles.json"
-  echo "5) Restart container"
-  echo "0) Keluar"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  read -rp "Pilih: " CH
+list_container() {
+clear
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📦 List container aktif"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+echo
+read -n1 -s -r -p "Tekan tombol apa saja..."
+}
 
-  case "$CH" in
-    1)
-      check_image
-      load_state
+del_container() {
+clear
+docker ps -a --format "table {{.Names}}\t{{.Status}}"
+echo
+read -p "Nama container yang mau dihapus: " NAME
+docker stop "$NAME" 2>/dev/null
+docker rm "$NAME"
+rm -rf "$DATA_DIR/data/${NAME/xray-/}"
+echo "Container $NAME dihapus."
+sleep 1
+}
 
-      echo "======== Buat container baru ========"
-      read -rp "Nama container (mis: hemat): " NAME
-      [ -z "$NAME" ] && { echo "Nama wajib diisi!"; read -rp "Enter..."; continue; }
+restart_container() {
+clear
+docker ps --format "table {{.Names}}\t{{.Status}}"
+echo
+read -p "Nama container untuk restart: " NAME
+docker restart "$NAME"
+sleep 1
+echo "✅ $NAME telah direstart."
+sleep 1
+}
 
-      read -rp "Port SSH [$SSH]: " IN_S; [ -n "$IN_S" ] && SSH="$IN_S"
-      read -rp "Password root SSH [default: root123]: " ROOTPW
-      [ -z "$ROOTPW" ] && ROOTPW="root123"
-
-      echo ""
-      echo "⚙️  config.json default: $BASE_DIR/config.json"
-      echo ""
-      echo "== RINGKASAN =="
-      echo "Nama       : $NAME"
-      echo "SSH Port   : $SSH"
-      echo "Password   : $ROOTPW"
-      echo ""
-
-      read -rp "Lanjut jalankan container? [Y/n]: " GO; GO=${GO:-Y}
-      if [[ "$GO" =~ ^[Yy]$ ]]; then
-        docker rm -f "xray-$NAME" >/dev/null 2>&1 || true
-
-        mkdir -p "$BASE_DIR/data/$NAME/.ssh" "$BASE_DIR/data/$NAME"
-        touch "$BASE_DIR/data/$NAME/vnstat.db"
-
-        docker run -d \
-          --name "xray-$NAME" \
-          --hostname "$NAME" \
-          --network=host \
-          -e XRAY_HOSTNAME="$NAME" \
-          -e ROOT_PASSWORD="$ROOTPW" \
-          -e SSH_PORT="$SSH" \
-          -v "$BASE_DIR/config.json:/etc/xray/config.json" \
-          -v "$BASE_DIR/data/$NAME/vnstat.db:/var/lib/vnstat/vnstat.db" \
-          -v "$BASE_DIR/data/$NAME/.ssh:/root/.ssh" \
-          "$IMAGE_NAME"
-
-        save_profile_json "$NAME" "$SSH" "$ROOTPW"
-        SSH=$((SSH+1)); save_state
-
-        PUBIP=$(get_public_ip)
-        echo ""
-        echo "✅ Container xray-$NAME berjalan!"
-        echo "   → SSH: ssh root@${PUBIP} -p ${SSH}"
-      else
-        echo "❎ Dibatalkan."
-      fi
-      read -rp "Enter..."
-      ;;
-    2)
-      docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' | grep xray- || echo "(tidak ada container)"
-      read -rp "Enter..."
-      ;;
-    3)
-      MAP=(); i=0
-      while IFS= read -r line; do
-        i=$((i+1))
-        name=$(echo "$line" | awk '{print $1}')
-        status=$(echo "$line" | awk '{print $2,$3,$4,$5}')
-        printf " %d) %s\t%s\n" "$i" "$name" "$status"
-        MAP[$i]="$name"
-      done < <(docker ps -a --format '{{.Names}} {{.Status}}' | grep xray-)
-
-      [ $i -eq 0 ] && { echo "(tidak ada container)"; read -rp "Enter..."; continue; }
-
-      read -rp "Hapus nomor/nama: " DEL
-      if [[ "$DEL" =~ ^[0-9]+$ ]]; then DEL="${MAP[$DEL]}"; fi
-      [ -z "$DEL" ] && { echo "batal"; read -rp "Enter..."; continue; }
-
-      read -rp "Yakin hapus $DEL ? [y/N]: " YA
-      [[ "$YA" =~ ^[Yy]$ ]] || { echo "Batal."; read -rp "Enter..."; continue; }
-
-      docker rm -f "$DEL" 2>/dev/null || true
-      short="${DEL#xray-}"
-      delete_profile_json "$short"
-      echo "✅ $DEL dihapus dari sistem."
-      read -rp "Enter..."
-      ;;
-    4)
-      if [ -f "$PROFILE_FILE" ]; then
-        jq . "$PROFILE_FILE" || cat "$PROFILE_FILE"
-      else
-        echo "profiles.json belum ada."
-      fi
-      read -rp "Enter..."
-      ;;
-    5)
-      docker ps -a --format '{{.Names}}' | grep xray- || { echo "(tidak ada container)"; read -rp "Enter..."; continue; }
-      read -rp "Masukkan nama container (tanpa xray-): " CN
-      [ -z "$CN" ] && { echo "Batal"; read -rp "Enter..."; continue; }
-      docker restart "xray-$CN" && echo "✅ xray-$CN direstart"
-      read -rp "Enter..."
-      ;;
-    0) exit 0 ;;
-    *) echo "Pilihan tidak valid."; read -rp "Enter..." ;;
-  esac
-done
+show_menu
