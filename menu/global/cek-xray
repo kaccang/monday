@@ -1,0 +1,50 @@
+#!/bin/bash
+# === XRAY CONFIG MONITOR ===
+# Cek perubahan pada /opt/xray/config.json
+# Jika berubah → restart service xray dan log perbedaan
+# By ChatGPT, tuned for your setup 😎
+
+CONFIG_FILE="/opt/xray/config.json"
+HASH_FILE="/opt/xray/.config_last_hash"
+LOG_FILE="/var/log/xray/config-watch.log"
+SERVICE_NAME="xray"
+
+# Pastikan log folder ada
+mkdir -p /var/log/xray
+
+# Jika file config belum ada, keluar
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "$(date '+%F %T') [WARN] File $CONFIG_FILE tidak ditemukan!" >> "$LOG_FILE"
+  exit 1
+fi
+
+# Hitung hash baru (sha256)
+NEW_HASH=$(sha256sum "$CONFIG_FILE" | awk '{print $1}')
+
+# Jika hash lama belum ada → simpan dan keluar tanpa restart
+if [[ ! -f "$HASH_FILE" ]]; then
+  echo "$NEW_HASH" > "$HASH_FILE"
+  echo "$(date '+%F %T') [INIT] Hash awal disimpan." >> "$LOG_FILE"
+  exit 0
+fi
+
+# Baca hash lama
+OLD_HASH=$(cat "$HASH_FILE")
+
+# Bandingkan hash lama dan baru
+if [[ "$NEW_HASH" != "$OLD_HASH" ]]; then
+  echo "$(date '+%F %T') [CHANGE] config.json berubah, restart service..." >> "$LOG_FILE"
+  echo "---------------- DIFF ----------------" >> "$LOG_FILE"
+  diff -u <(cat "$CONFIG_FILE") <(cp "$CONFIG_FILE" /tmp/config.tmp && cat /tmp/config.tmp) 2>/dev/null >> "$LOG_FILE"
+  echo "-------------------------------------" >> "$LOG_FILE"
+  
+  # Restart Xray
+  systemctl restart "$SERVICE_NAME" && \
+    echo "$(date '+%F %T') [OK] Xray berhasil direstart." >> "$LOG_FILE" || \
+    echo "$(date '+%F %T') [ERR] Restart Xray gagal!" >> "$LOG_FILE"
+  
+  # Update hash
+  echo "$NEW_HASH" > "$HASH_FILE"
+else
+  echo "$(date '+%F %T') [NOCHANGE] Tidak ada perubahan." >> "$LOG_FILE"
+fi
