@@ -173,6 +173,7 @@ fi
 0 1 * * * /usr/bin/bckp
 0 2 */25 * * /usr/bin/cert
 0 */12 * * * /usr/bin/bw-tele
+* * * * * /usr/bin/cek-xray
 EOF
 ) | crontab -
 
@@ -214,17 +215,15 @@ wget -O /usr/bin/bckp "$MENU_LINK/global/bckp"
 wget -O /usr/bin/cert "$MENU_LINK/global/cert"
 wget -O /usr/bin/xp "$MENU_LINK/global/xp"
 wget -O /usr/bin/manage "$MENU_LINK/global/manage"
+wget -O /usr/bin/cek-xray "$MENU_LINK/global/cek-xray"
 
 chmod +x /usr/bin/bckp
 chmod +x /usr/bin/cert
 chmod +x /usr/bin/xp
 chmod +x /usr/bin/manage
+chmod +x /usr/bin/cek-xray
 
 echo "✅ File berhasil dipasang."
-
-if ! grep -q "/usr/bin/menu" ~/.bashrc; then
-    echo "/usr/bin/menu" >> ~/.bashrc
-fi
 
 mkdir -p /var/log/xray
 touch /var/log/xray/access.log /var/log/xray/error.log
