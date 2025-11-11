@@ -321,7 +321,7 @@ chmod +x /root/.acme.sh/acme.sh
 /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
 /root/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256
 /root/.acme.sh/acme.sh --installcert -d "$domain" --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc
-chmod 600 /etc/xray/xray.key /etc/xray/xray.crt
+chmod 600 /opt/xray/xray.key /opt/xray/xray.crt
 
 # Install Xray
 XRAY_VERSION="v25.5.16"
