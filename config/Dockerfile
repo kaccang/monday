@@ -22,7 +22,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # 5. Manage Menu
-COPY menu/shared/* /usr/bin/
-RUN chmod +x /usr/bin/*
+#COPY menu/shared/* /usr/bin/
+#RUN chmod +x /usr/bin/*
 
 ENTRYPOINT ["/entrypoint.sh"]
