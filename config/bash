@@ -1,7 +1,8 @@
 #!/bin/bash
+
 # =============================================================
-# XRAY VPS INSTALLER - CLEAN FINAL VERSION (for /opt/xray)
-# Logic preserved 100%, duplicates & wrong paths fixed
+# XRAY VPS INSTALLER - FIXED MULTILINE VERSION
+# Original logic preserved 100%
 # =============================================================
 
 # --- Root check
@@ -34,7 +35,7 @@ CITY=$(curl -s ipinfo.io/city)
 TIME=$(date +'%Y-%m-%d %H:%M:%S')
 
 # --- Persiapan folder
-mkdir -p /opt/xray /var/log/xray /var/www/html /root/.acme.sh
+mkdir -p /etc/xray /var/log/xray /var/www/html /root/.acme.sh /opt/xray/
 
 # --- Input domain
 read -rp "Input Your Domain For This Server: " SUB_DOMAIN
@@ -210,13 +211,28 @@ for file in "${FILES[@]}"; do
     chmod +x "/usr/bin/$file"
 done
 
-wget -O /usr/bin/bckp     "$MENU_LINK/global/bckp"
-wget -O /usr/bin/cert     "$MENU_LINK/global/cert"
-wget -O /usr/bin/xp       "$MENU_LINK/global/xp"
-wget -O /usr/bin/manage   "$MENU_LINK/global/manage"
+wget -O /usr/bin/bckp "$MENU_LINK/global/bckp"
+wget -O /usr/bin/cert "$MENU_LINK/global/cert"
+wget -O /usr/bin/xp "$MENU_LINK/global/xp"
+wget -O /usr/bin/manage "$MENU_LINK/global/manage"
 wget -O /usr/bin/cek-xray "$MENU_LINK/global/cek-xray"
 
-chmod +x /usr/bin/bckp /usr/bin/cert /usr/bin/xp /usr/bin/manage /usr/bin/cek-xray
+chmod +x /usr/bin/bckp
+chmod +x /usr/bin/cert
+chmod +x /usr/bin/xp
+chmod +x /usr/bin/manage
+chmod +x /usr/bin/cek-xray
+
+# ===== Dockerfile & Entrypoint =====
+wget -O /opt/xray/Dockerfile "$BASE_LINK/config/Dockerfile"
+wget -O /opt/xray/entrypoint.sh "$BASE_LINK/config/entrypoint.sh"
+chmod +x /opt/xray/entrypoint.sh
+cd /opt/xray && docker build -t xray-base:24.04 .
+
+# ===== Auto manage container =====
+if ! grep -q "/usr/bin/manage" /root/.bashrc; then
+    echo "/usr/bin/manage" >> /root/.bashrc
+fi
 
 echo "✅ File berhasil dipasang."
 
@@ -224,13 +240,6 @@ mkdir -p /var/log/xray
 touch /var/log/xray/access.log /var/log/xray/error.log
 chown -R www-data:www-data /var/log/xray
 chmod -R 644 /var/log/xray/*
-
-# =============================================================
-# Auto jalankan manage di login
-# =============================================================
-if ! grep -q "/usr/bin/manage" /root/.bashrc; then
-    echo "/usr/bin/manage" >> /root/.bashrc
-fi
 
 # =============================================================
 # Selesai
@@ -245,6 +254,9 @@ echo -e "\033[0;32m$ip $tanggal\033[0m"
 echo -e "\033[1;33m$ip $tanggal\033[0m"
 echo -e "\033[0;32m$ip $tanggal\033[0m"
 echo -e "\033[1;33m$ip $tanggal\033[0m"
+
+rm /root/rclone.7z
+rm /root/bash
 
 echo "✅ Instalasi selesai, rebooting dalam 10 detik..."
 sleep 10
