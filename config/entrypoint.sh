@@ -10,7 +10,7 @@ exec 2> >(tee /var/log/entrypoint-error.log >&2)
 : "${VNSTAT_IFACE:=}"             # kalau kosong, autodetect
 
 BASE_LINK="https://github.com/kaccang/monday/raw/main"
-MENU_LINK="$BASE_LINK/menu"
+MENU_LINK="$BASE_LINK/menu/shared"
 
 echo "━━━━━━━━ ENTRYPOINT ━━━━━━━━"
 echo "[INFO] SSH_PORT=${SSH_PORT}"
