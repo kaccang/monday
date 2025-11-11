@@ -70,10 +70,10 @@ docker run -d \
   -e ROOT_PASSWORD="$PASS" \
   -e XRAY_DOMAIN="$DOMAIN" \
   -e LICENSE_ID_OVERRIDE="$NAMA" \
-  -v "$CONFIG_PATH":/etc/xray/config.json \
-  -v "/opt/xray/data/$NAMA/log":/var/log/xray \
-  -v "/opt/xray/data/$NAMA":/opt/xray/data \
-  -p "$PORT":"$PORT" \
+  -v "/opt/xray/config.json:/etc/xray/config.json:rw" \
+  -v "/var/log/xray/access.log:/var/log/xray/access.log:ro" \
+  -v "/var/log/xray/error.log:/var/log/xray/error.log:ro" \
+  -p "$PORT:$PORT" \
   xray-base:24.04 >/tmp/dockerid.txt 2>&1
 
 CID=$(cat /tmp/dockerid.txt)
