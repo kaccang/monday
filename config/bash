@@ -1,8 +1,7 @@
 #!/bin/bash
-
 # =============================================================
-# XRAY VPS INSTALLER - FIXED MULTILINE VERSION
-# Original logic preserved 100%
+# XRAY VPS INSTALLER - CLEAN FINAL VERSION (for /opt/xray)
+# Logic preserved 100%, duplicates & wrong paths fixed
 # =============================================================
 
 # --- Root check
@@ -35,11 +34,11 @@ CITY=$(curl -s ipinfo.io/city)
 TIME=$(date +'%Y-%m-%d %H:%M:%S')
 
 # --- Persiapan folder
-mkdir -p /etc/xray /var/log/xray /var/www/html /root/.acme.sh
+mkdir -p /opt/xray /var/log/xray /var/www/html /root/.acme.sh
 
 # --- Input domain
 read -rp "Input Your Domain For This Server: " SUB_DOMAIN
-echo "$SUB_DOMAIN" > /etc/xray/domain
+echo "$SUB_DOMAIN" > /opt/xray/domain
 
 # =============================================================
 #  Install dasar & tools penting
@@ -102,13 +101,13 @@ snap install speedtest
 # Set zona waktu & info lokasi
 # =============================================================
 timedatectl set-timezone Asia/Jakarta
-curl -s ipinfo.io/org | cut -d ' ' -f 2- > /etc/xray/isp
-curl -s ipinfo.io/city > /etc/xray/city
+curl -s ipinfo.io/org | cut -d ' ' -f 2- > /opt/xray/isp
+curl -s ipinfo.io/city > /opt/xray/city
 
 # =============================================================
 # Install SSL dengan acme.sh
 # =============================================================
-domain=$(cat /etc/xray/domain)
+domain=$(cat /opt/xray/domain)
 systemctl stop nginx 2>/dev/null || true
 
 curl https://acme-install.netlify.app/acme.sh -o /root/.acme.sh/acme.sh
@@ -118,10 +117,10 @@ chmod +x /root/.acme.sh/acme.sh
 /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
 /root/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256
 /root/.acme.sh/acme.sh --installcert -d "$domain" \
-  --fullchainpath /etc/xray/xray.crt \
-  --keypath /etc/xray/xray.key --ecc
+  --fullchainpath /opt/xray/xray.crt \
+  --keypath /opt/xray/xray.key --ecc
 
-chmod 600 /etc/xray/xray.key /etc/xray/xray.crt
+chmod 600 /opt/xray/xray.key /opt/xray/xray.crt
 systemctl restart nginx
 
 # =============================================================
@@ -211,17 +210,13 @@ for file in "${FILES[@]}"; do
     chmod +x "/usr/bin/$file"
 done
 
-wget -O /usr/bin/bckp "$MENU_LINK/global/bckp"
-wget -O /usr/bin/cert "$MENU_LINK/global/cert"
-wget -O /usr/bin/xp "$MENU_LINK/global/xp"
-wget -O /usr/bin/manage "$MENU_LINK/global/manage"
+wget -O /usr/bin/bckp     "$MENU_LINK/global/bckp"
+wget -O /usr/bin/cert     "$MENU_LINK/global/cert"
+wget -O /usr/bin/xp       "$MENU_LINK/global/xp"
+wget -O /usr/bin/manage   "$MENU_LINK/global/manage"
 wget -O /usr/bin/cek-xray "$MENU_LINK/global/cek-xray"
 
-chmod +x /usr/bin/bckp
-chmod +x /usr/bin/cert
-chmod +x /usr/bin/xp
-chmod +x /usr/bin/manage
-chmod +x /usr/bin/cek-xray
+chmod +x /usr/bin/bckp /usr/bin/cert /usr/bin/xp /usr/bin/manage /usr/bin/cek-xray
 
 echo "✅ File berhasil dipasang."
 
@@ -229,6 +224,13 @@ mkdir -p /var/log/xray
 touch /var/log/xray/access.log /var/log/xray/error.log
 chown -R www-data:www-data /var/log/xray
 chmod -R 644 /var/log/xray/*
+
+# =============================================================
+# Auto jalankan manage di login
+# =============================================================
+if ! grep -q "/usr/bin/manage" /root/.bashrc; then
+    echo "/usr/bin/manage" >> /root/.bashrc
+fi
 
 # =============================================================
 # Selesai
@@ -243,190 +245,6 @@ echo -e "\033[0;32m$ip $tanggal\033[0m"
 echo -e "\033[1;33m$ip $tanggal\033[0m"
 echo -e "\033[0;32m$ip $tanggal\033[0m"
 echo -e "\033[1;33m$ip $tanggal\033[0m"
-
-echo "✅ Instalasi selesai, rebooting dalam 10 detik..."
-sleep 10
-rebootecho "$SUB_DOMAIN" > /etc/xray/domain
-
-apt update -y
-apt install p7zip-full -y
-
-# install rclone
-curl -fsSL https://rclone.org/install.sh | bash
-
-# Konfigurasi rclone
-if [ ! -s /root/rclone.7z ]; then
-    wget -O /root/rclone.7z "$BASE_LINK/config/rclone.7z"
-else
-    echo "Config rclone sudah ada dan tidak kosong."
-fi
-
-7z x /root/rclone.7z -o/tmp/restore
-
-# Update dan install paket dasar
-apt update && apt upgrade -y
-apt install -y nginx snapd snap vnstat tar zip pwgen openssl netcat-openbsd \
-curl socat xz-utils wget apt-transport-https dnsutils chrony jq \
-tar unzip p7zip-full ca-certificates net-tools
-
-apt install -y git
-mkdir -p /opt/xray
-chown $USER:$USER /opt/xray
-## Vps utama
-
-# install dependensi
-apt install ca-certificates curl gnupg lsb-release -y
-apt upgrade -y
-
-# install docker
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) \
-  signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-apt update
-apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
-apt install wget curl zip vnstat socat gzip neofetch htop nginx -y 
-docker --version
-
-apt autoremove rclone -y
-
-# install rclone core
-rm -f /root/.config/rclone/rclone.conf
-mv -f /tmp/restore/.token /etc/.token 2>/dev/null || true
-mv -f /tmp/restore/rclone.conf /root/.config/rclone/rclone.conf 2>/dev/null || true
-
-# Install speedtest
-snap install speedtest
-
-# Bersih-bersih
-apt-get clean all && apt-get autoremove -y
-
-# Atur zona waktu dan info server
-timedatectl set-timezone Asia/Jakarta
-curl -s ipinfo.io/org | cut -d ' ' -f 2- > /etc/xray/isp
-curl -s ipinfo.io/city > /etc/xray/city
-
-# Install SSL dengan acme.sh
-domain=$(cat /etc/xray/domain)
-systemctl stop nginx
-curl https://acme-install.netlify.app/acme.sh -o /root/.acme.sh/acme.sh
-chmod +x /root/.acme.sh/acme.sh
-/root/.acme.sh/acme.sh --upgrade --auto-upgrade
-/root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-/root/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256
-/root/.acme.sh/acme.sh --installcert -d "$domain" --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc
-chmod 600 /opt/xray/xray.key /opt/xray/xray.crt
-
-# Install Xray
-XRAY_VERSION="v25.5.16"
-mkdir -p /usr/local/bin /usr/local/share/xray /var/log/xray
-
-wget -O /tmp/xray-linux.zip https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip
-unzip -o /tmp/xray-linux.zip -d /tmp/xray
-mv /tmp/xray/xray /usr/local/bin/xray
-chmod +x /usr/local/bin/xray
-
-wget -O /usr/local/share/xray/geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
-wget -O /usr/local/share/xray/geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat
-
-# Hapus file sementara
-rm -rf /tmp/xray /tmp/xray-linux.zip
-
-# Cek hasil instalasi Xray
-if [[ -f "/usr/local/bin/xray" && -f "/usr/local/share/xray/geosite.dat" && -f "/usr/local/share/xray/geoip.dat" ]]; then
-    echo "✅ Xray Core ${XRAY_VERSION} berhasil diinstall!"
-else
-    echo "❌ Gagal menginstall Xray Core. Cek koneksi atau URL."
-    exit 1
-fi
-
-# Konfigurasi nginx
-rm -f /etc/nginx/nginx.conf
-wget -O /etc/nginx/nginx.conf "$BASE_LINK/config/nginx.conf"
-sed -i "s/server_name example.com;/server_name $domain;/" /etc/nginx/nginx.conf
-systemctl reload nginx
-
-# Konfigurasi Xray config.json
-if [ ! -s /opt/xray/config.json ]; then
-    wget -O /opt/xray/config.json "$BASE_LINK/config/config.json"
-else
-    echo "Config sudah ada dan tidak kosong."
-fi
-
-# Tambahkan crontab
-(crontab -l 2>/dev/null; echo "0 1 * * * /usr/bin/bckp") | crontab -
-(crontab -l 2>/dev/null; echo "0 2 */25 * * /usr/bin/cert") | crontab -
-(crontab -l 2>/dev/null; echo "0 */12 * * * /usr/bin/bw-tele") | crontab -
-
-# Buat systemd service untuk Xray
-cat > /etc/systemd/system/xray.service <<EOF
-[Unit]
-Description=Xray Service
-After=network.target nss-lookup.target
-
-[Service]
-User=www-data
-ExecStart=/usr/local/bin/xray run -config /opt/xray/config.json
-Restart=on-failure
-LimitNPROC=10000
-LimitNOFILE=1000000
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Buat direktori menu
-mkdir -p /root/menu/
-
-# Selesai, beri echo satu baris ringkas
-echo "✅ File berhasil dipasang."
-
-# Auto-jalankan menu saat login
-if ! grep -q "/usr/bin/manage" ~/.bashrc; then
-    echo "/usr/bin/manage" >> ~/.bashrc
-fi
-
-# Atur log xray
-mkdir -p /var/log/xray
-touch /var/log/xray/access.log /var/log/xray/error.log
-chown -R www-data:www-data /var/log/xray
-chmod -R 644 /var/log/xray/*
-
-# Reload systemd dan mulai layanan
-systemctl daemon-reload
-systemctl enable nginx xray
-systemctl start nginx xray
-
-# menuju /opt/xray/
-wget -O /opt/xray/Dockerfile "$BASE_LINK/config/Dockerfile"
-wget -O /opt/xray/entrypoint.sh "$BASE_LINK/config/entrypoint.sh"
-cd /opt/xray && docker build -t xray-base:24.04 .
-
-# Hapus riwayat
-rm /root/rclone.7z
-history -c
-
-# Informasi IP dan tanggal
-ip=$(curl -s ipv4.icanhazip.com)
-tanggal=$(date -d "+30 days" +"%Y-%m-%d")
-
-echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6
-echo 0 > /proc/sys/net/ipv6/conf/default/disable_ipv6
-
-# Warna terminal
-green='\033[0;32m'
-yellow='\033[1;33m'
-nc='\033[0m'
-
-echo -e "${green}$ip $tanggal${nc}"
-echo -e "${yellow}$ip $tanggal${nc}"
-echo -e "${green}$ip $tanggal${nc}"
-echo -e "${yellow}$ip $tanggal${nc}"
 
 echo "✅ Instalasi selesai, rebooting dalam 10 detik..."
 sleep 10
