@@ -1,0 +1,135 @@
+#!/bin/bash
+clear
+
+CONFIG="/etc/xray/config.json"
+
+# === [Deteksi hostname → anchor + prefix] ===
+nama=$(hostname)
+case "$nama" in
+  hemat)  anchor="#hemat$";  prefix="##1" ;;
+  troy5)  anchor="#troy5$";  prefix="##2" ;;
+  rayvm1) anchor="#rayvm1$"; prefix="##3" ;;
+  hafiz1) anchor="#hafiz1$"; prefix="##4" ;;
+  *)      anchor="#vmess$";  prefix="###" ;;
+esac
+
+# === Ambil daftar baris akun dalam blok anchor & prefix aktif ===
+# Bentuk baris: "<prefix> <user> <YYYY-MM-DD>"
+mapfile -t CLIENT_LINES < <(awk -v a="$anchor" -v pfx="^${prefix} " '
+  BEGIN { inblk=0 }
+  $0 ~ a { inblk=1; next }             # masuk blok anchor
+  inblk && $0 ~ /^#[^#]/ { inblk=0 }   # keluar saat anchor single-# berikutnya
+  inblk && $0 ~ pfx { print }          # hanya baris prefix yang match
+' "$CONFIG")
+
+NUMBER_OF_CLIENTS=${#CLIENT_LINES[@]}
+
+# Kalau kosong
+if [[ ${NUMBER_OF_CLIENTS} -eq 0 ]]; then
+    echo "─────────────────────────────────────────"
+    echo "          Renew VMess Account"
+    echo "─────────────────────────────────────────"
+    echo ""
+    echo "Tidak ada client di grup [$nama] ($anchor) dengan prefix [$prefix]"
+    echo ""
+    echo "─────────────────────────────────────────"
+    read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu"
+    menu
+fi
+
+# Susun list unik per-username (ambil exp pertama yg ditemukan dalam blok)
+declare -A USER2EXP
+ORDERED_USERS=()
+for line in "${CLIENT_LINES[@]}"; do
+  u=$(awk '{print $2}' <<< "$line")
+  e=$(awk '{print $3}' <<< "$line")
+  if [[ -z "${USER2EXP[$u]+x}" ]]; then
+    USER2EXP["$u"]="$e"
+    ORDERED_USERS+=("$u")
+  fi
+done
+
+clear
+echo "─────────────────────────────────────────"
+echo "          Renew VMess Account"
+echo "─────────────────────────────────────────"
+echo "  No.  Username              Expired"
+echo "─────────────────────────────────────────"
+for i in "${!ORDERED_USERS[@]}"; do
+  u="${ORDERED_USERS[$i]}"
+  e="${USER2EXP[$u]}"
+  printf " %3d) %-21s %s\n" $((i+1)) "$u" "$e"
+done
+echo "─────────────────────────────────────────"
+
+# Input pilihan
+until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${#ORDERED_USERS[@]} ]]; do
+    read -rp "Select number [1-${#ORDERED_USERS[@]}]: " CLIENT_NUMBER
+done
+user="${ORDERED_USERS[$((CLIENT_NUMBER-1))]}"
+exp="${USER2EXP[$user]}"
+
+# Validasi line target memang ada di blok anchor aktif
+FOUND=$(awk -v a="$anchor" -v pfx="^${prefix} " -v u="$user" -v e="$exp" '
+  BEGIN { inblk=0; found=0 }
+  $0 ~ a { inblk=1; next }
+  inblk && $0 ~ /^#[^#]/ { inblk=0 }
+  inblk && $0 ~ (pfx u " " e "$") { found=1; exit }
+  END { print found }
+' "$CONFIG")
+if [[ "$FOUND" != "1" ]]; then
+  echo "User/exp tidak ditemukan di blok [$nama] dengan prefix [$prefix]."
+  read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu"
+  menu
+fi
+
+# Input hari tambahan
+read -p "Tambahkan berapa hari (days): " masaaktif
+if ! [[ "$masaaktif" =~ ^[0-9]+$ ]]; then
+    echo "Input harus berupa angka!"
+    read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu"
+    menu
+fi
+
+# Hitung expiry baru
+now=$(date +%Y-%m-%d)
+d1=$(date -d "$exp" +%s 2>/dev/null || echo "")
+if [[ -z "$d1" ]]; then
+  # kalau format exp aneh, anggap hari tersisa = 0
+  exp2=0
+else
+  d2=$(date -d "$now" +%s)
+  exp2=$(((d1 - d2) / 86400))
+  [[ "$exp2" -lt 0 ]] && exp2=0
+fi
+exp3=$((exp2 + masaaktif))
+exp4=$(date -d "$exp3 days" +"%Y-%m-%d")
+
+# === Update baris marker di blok anchor (tanpa sentuh baris JSON di bawahnya) ===
+tmpfile=$(mktemp /tmp/xrayrenew.XXXXXX) || tmpfile="/tmp/xrayrenew.$$"
+awk -v a="$anchor" -v nexta="^#[^#]" -v old="^${prefix} ${user} ${exp}$" -v rep="${prefix} ${user} ${exp4}" '
+  BEGIN { inblk=0; done=0 }
+  {
+    if ($0 ~ a) { inblk=1; print; next }
+    if (inblk && $0 ~ nexta) { inblk=0; print; next }
+
+    if (inblk && done==0 && $0 ~ old) {
+      print rep
+      done=1
+      next
+    }
+
+    print
+  }
+' "$CONFIG" > "$tmpfile" && cat "$tmpfile" > "$CONFIG" && rm -f "$tmpfile"
+
+clear
+echo "─────────────────────────────────────────"
+echo " VMess Account Was Successfully Renewed"
+echo "─────────────────────────────────────────"
+echo " Client     : $user"
+echo " Added Days : $masaaktif days"
+echo " Expired On : $exp4"
+echo "─────────────────────────────────────────"
+read -n 1 -s -r -p "Press any key to back on menu"
+menu

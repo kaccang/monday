@@ -1,0 +1,166 @@
+#!/bin/bash
+clear
+CONFIG="/etc/xray/config.json"
+
+# === [Deteksi hostname → anchor + prefix + path] ===
+nama=$(hostname)
+case "$nama" in
+  hemat)
+    anchor="#hemat$"; prefix="##1"
+    base_path="/watch"; sub_category="anime"
+    titles=(naruto one-piece demon-slayer jujutsu-kaisen attack-titan)
+    ;;
+  troy5)
+    anchor="#troy5$"; prefix="##2"
+    base_path="/vmess"; sub_category=""; titles=()
+    ;;
+  rayvm1)
+    anchor="#rayvm1$"; prefix="##3"
+    base_path="/play"; sub_category="anime"
+    titles=(blue-spring tokyo-days wind-song silent-voice kimi-no-love star-academy)
+    ;;
+  hafiz1)
+    anchor="#hafiz1$"; prefix="##4"
+    base_path="/vmess"; sub_category=""; titles=()
+    ;;
+  *)
+    anchor="#vmess$"; prefix="###"
+    base_path="/vmess"; sub_category=""; titles=()
+    ;;
+esac
+
+# === Ambil semua user dari blok anchor aktif (unik per username) ===
+mapfile -t entries < <(awk -v a="$anchor" -v pfx="^${prefix} " '
+  BEGIN { inblk=0 }
+  $0 ~ a { inblk=1; next }
+  inblk && $0 ~ /^#[^#]/ { inblk=0 }
+  inblk && $0 ~ pfx { print }
+' "$CONFIG" | awk '!seen[$2]++')
+
+if [[ ${#entries[@]} -eq 0 ]]; then
+  echo ""
+  echo "╔══════════════════════════════╗"
+  echo "║ Tidak ada user di host $nama ║"
+  echo "╚══════════════════════════════╝"
+  read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu"
+  menu
+fi
+
+# === Tampilkan daftar user ===
+echo ""
+echo "╔══════════════════════════════╗"
+echo "║     DAFTAR USER [$nama]      ║"
+echo "╚══════════════════════════════╝"
+for i in "${!entries[@]}"; do
+  user=$(echo "${entries[$i]}" | awk '{print $2}')
+  exp=$(echo "${entries[$i]}" | awk '{print $3}')
+  printf " %2d. %-15s %s\n" $((i+1)) "$user" "$exp"
+done
+echo ""
+
+read -p ">> Pilih nomor akun [1 - ${#entries[@]}]: " num
+if [[ "$num" -lt 1 || "$num" -gt "${#entries[@]}" ]]; then
+  echo "Nomor tidak valid!"
+  exit 1
+fi
+
+line="${entries[$((num-1))]}"
+user=$(echo "$line" | awk '{print $2}')
+exp=$(echo "$line" | awk '{print $3}')
+
+# === Ambil UUID secara block-aware (kompatibel busybox/mawk) ===
+uuid=$(awk -v a="$anchor" -v nexta="^#[^#]" -v u="$user" -v pfx="^${prefix} " '
+  BEGIN { inblk=0; grab=0; uuid="" }
+  $0 ~ a { inblk=1; next }
+  inblk && $0 ~ nexta { inblk=0 }
+  # baris marker user di blok aktif
+  inblk && $0 ~ (pfx u " ") { grab=1; next }
+  # baris JSON tepat di bawah marker
+  grab {
+      line=$0
+      # cari pola: ..."id":   "UUID"...
+      if (line ~ /"id"[[:space:]]*:[[:space:]]*"/) {
+          # buang sampai pembuka UUID
+          sub(/.*"id"[[:space:]]*:[[:space:]]*"/,"", line)
+          # potong setelah UUID
+          sub(/".*/,"", line)
+          uuid=line
+          grab=0
+      }
+      next
+  }
+  END { print uuid }
+' "$CONFIG")
+
+if [[ -z "$uuid" ]]; then
+  echo "UUID untuk user $user tidak ditemukan!"
+  read -n 1 -s -r -p "Press any key to back on menu"
+  menu
+fi
+
+domain=$(cat /etc/xray/domain)
+
+# === Tentukan path (optional random) ===
+if [[ "$sub_category" == "anime" && ${#titles[@]} -gt 0 ]]; then
+  title=${titles[$RANDOM % ${#titles[@]}]}
+  path="$base_path/$sub_category/$title"
+else
+  path="$base_path"
+fi
+
+# === Buat link VMESS ===
+VMESS_WS=$(cat <<EOF
+{
+  "v": "2",
+  "ps": "$user TLS",
+  "add": "${domain}",
+  "port": "443",
+  "id": "${uuid}",
+  "aid": "0",
+  "net": "ws",
+  "path": "${path}",
+  "type": "none",
+  "host": "${domain}",
+  "tls": "tls"
+}
+EOF
+)
+
+VMESS_NON_TLS=$(cat <<EOF
+{
+  "v": "2",
+  "ps": "$user NTLS",
+  "add": "${domain}",
+  "port": "80",
+  "id": "${uuid}",
+  "aid": "0",
+  "net": "ws",
+  "path": "${path}",
+  "type": "none",
+  "host": "${domain}",
+  "tls": "none"
+}
+EOF
+)
+
+vmesslink1="vmess://$(echo $VMESS_WS | base64 -w 0)"
+vmesslink2="vmess://$(echo $VMESS_NON_TLS | base64 -w 0)"
+
+clear
+echo -e "───────────────────"
+echo -e "       Vmess Account Detail"
+echo -e "───────────────────"
+echo -e "Remarks     : $user"
+echo -e "Domain      : $domain"
+echo -e "Port TLS    : 443"
+echo -e "Port NTLS   : 80"
+echo -e "Encryption  : none"
+echo -e "Path        : ${path}"
+echo -e "Expired On  : $exp"
+echo -e "───────────────────"
+echo -e "TLS Link: $vmesslink1"
+echo -e "───────────────────"
+echo -e "Non-TLS Link: $vmesslink2"
+echo -e "───────────────────"
+read -n 1 -s -r -p "Press any key to back on menu"
+menu

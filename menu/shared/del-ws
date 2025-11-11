@@ -1,0 +1,120 @@
+#!/bin/bash
+clear
+
+CONFIG="/etc/xray/config.json"
+
+# === [Deteksi hostname → anchor + prefix] ===
+nama=$(hostname)
+case "$nama" in
+  hemat)  anchor="#hemat$";  prefix="##1" ;;
+  troy5)  anchor="#troy5$";  prefix="##2" ;;
+  rayvm1) anchor="#rayvm1$"; prefix="##3" ;;
+  hafiz1) anchor="#hafiz1$"; prefix="##4" ;;
+  *)      anchor="#vmess$";  prefix="###" ;;
+esac
+
+# === Ambil daftar user HANYA di dalam anchor & yang match prefix ===
+# Menghindari campur dari blok lain atau prefix lain.
+mapfile -t CLIENT_LINES < <(awk -v a="$anchor" -v pfx="^${prefix} " '
+  BEGIN { inblk=0 }
+  $0 ~ a { inblk=1; next }          # masuk blok anchor
+  inblk && $0 ~ /^#[^#]/ { inblk=0 }# keluar saat anchor single-# berikutnya
+  inblk && $0 ~ pfx { print }       # hanya baris yang diawali prefix tepat
+' "$CONFIG")
+
+NUMBER_OF_CLIENTS=${#CLIENT_LINES[@]}
+
+if [[ ${NUMBER_OF_CLIENTS} -eq 0 ]]; then
+  echo "─────────────────────────────────────────"
+  echo "             Delete VMess Account"
+  echo "─────────────────────────────────────────"
+  echo ""
+  echo "Tidak ada client di grup [$nama] ($anchor) dengan prefix [$prefix]"
+  echo ""
+  echo "─────────────────────────────────────────"
+  read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu"
+  menu
+fi
+
+# Tampilkan menu
+clear
+echo "─────────────────────────────────────────"
+echo "             Delete VMess Account"
+echo "─────────────────────────────────────────"
+echo " Hostname : $nama ($anchor)"
+echo " Prefix   : $prefix"
+echo "─────────────────────────────────────────"
+echo "  NO   Username             Expired"
+echo "─────────────────────────────────────────"
+
+USER_ARR=()
+EXP_ARR=()
+for i in "${!CLIENT_LINES[@]}"; do
+  u=$(awk '{print $2}' <<< "${CLIENT_LINES[$i]}")
+  e=$(awk '{print $3}' <<< "${CLIENT_LINES[$i]}")
+  USER_ARR+=("$u")
+  EXP_ARR+=("$e")
+  printf " %3d) %-20s %s\n" $((i+1)) "$u" "$e"
+done
+
+# Pilih user
+until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
+  read -rp "Pilih salah satu [1-${NUMBER_OF_CLIENTS}]: " CLIENT_NUMBER
+done
+
+user="${USER_ARR[$((CLIENT_NUMBER-1))]}"
+exp="${EXP_ARR[$((CLIENT_NUMBER-1))]}"
+
+# Validasi final: pastikan baris persis ada di blok anchor & prefix
+FOUND=$(awk -v a="$anchor" -v pfx="^${prefix} " -v u="$user" -v e="$exp" '
+  BEGIN { inblk=0; found=0 }
+  $0 ~ a { inblk=1; next }
+  inblk && $0 ~ /^#[^#]/ { inblk=0 }               # keluar blok
+  inblk && $0 ~ (pfx u " " e "$") { found=1; exit }
+  END { print found }
+' "$CONFIG")
+
+if [[ "$FOUND" != "1" ]]; then
+  echo "Baris target tidak ditemukan di blok anchor [$nama] dengan prefix [$prefix]."
+  read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu"
+  menu
+fi
+
+# === Hapus 2 baris: (1) marker prefix + (2) baris JSON berikutnya — aman untuk bind-mount ===
+tmpfile=$(mktemp /tmp/xraydel.XXXXXX) || tmpfile="/tmp/xraydel.$$"
+awk -v a="$anchor" -v nexta="^#[^#]" -v line="^${prefix} ${user} ${exp}$" '
+  BEGIN { inblk=0 }
+  {
+    # deteksi masuk/keluar blok anchor
+    if ($0 ~ a) { inblk=1; print; next }
+    if (inblk && $0 ~ nexta) { inblk=0; print; next }
+
+    if (inblk && $0 ~ line) {
+      # SKIP baris marker (prefix user exp)
+      # baca baris berikutnya: jika JSON akun (},{"id": atau ,{"id":), skip juga.
+      getline nxt
+      if (nxt ~ /^[[:space:]]*},\{"id":/ || nxt ~ /^[[:space:]]*,\{"id":/ ) {
+        # skip JSON line
+        next
+      } else {
+        # kalau ternyata bukan JSON akun, tulis balik baris itu
+        print nxt
+        next
+      }
+    }
+
+    # default
+    print
+  }
+' "$CONFIG" > "$tmpfile" && cat "$tmpfile" > "$CONFIG" && rm -f "$tmpfile"
+
+# Output hasil
+clear
+echo "─────────────────────────────────────────"
+echo " VMess Account Deleted Successfully"
+echo "─────────────────────────────────────────"
+echo " Client     : $user"
+echo " Expired On : $exp"
+echo "─────────────────────────────────────────"
+read -n 1 -s -r -p "Press any key to back on menu"
+menu
