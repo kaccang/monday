@@ -31,7 +31,7 @@ done
 # ====== Seed file info (domain/org/city) ======
 # (Kalau kamu mount file ini dari host, baris berikut tetap harmless)
 echo "${XRAY_DOMAIN}" > /etc/xray/domain
-curl -s ipinfo.io/org  | cut -d ' ' -f 2- > /etc/xray/org  || true
+curl -s ipinfo.io/org  | cut -d ' ' -f 2- > /etc/xray/isp  || true
 curl -s ipinfo.io/city > /etc/xray/city                   || true
 
 # ====== SSH ======
