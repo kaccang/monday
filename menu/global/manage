@@ -5,6 +5,8 @@
 # - bisa input domain
 # - log access xray dimount
 # - tetap support profiles.json
+# - path fix /opt/xray
+# - password fix ROOT_PASSWORD
 
 DATA_DIR="/opt/xray"
 PROFILE_FILE="$DATA_DIR/profiles.json"
@@ -64,12 +66,14 @@ read -p "Lanjut jalankan container? [Y/n]: " jawab
 
 # Jalankan docker container
 docker run -d \
-  --name "xray-$NAMA" \
-  --hostname "$NAMA" \
+  --name "xray-$NAME" \
+  --hostname "$NAME" \
   --restart unless-stopped \
+  -e SSH_PORT="$PORT" \
   -e ROOT_PASSWORD="$PASS" \
+  -e PASSWORD="$PASS" \
   -e XRAY_DOMAIN="$DOMAIN" \
-  -e LICENSE_ID_OVERRIDE="$NAMA" \
+  -e LICENSE_ID_OVERRIDE="$NAME" \
   -v "/opt/xray/config.json:/etc/xray/config.json:rw" \
   -v "/var/log/xray/access.log:/var/log/xray/access.log:ro" \
   -v "/var/log/xray/error.log:/var/log/xray/error.log:ro" \
@@ -77,14 +81,22 @@ docker run -d \
   xray-base:24.04 >/tmp/dockerid.txt 2>&1
 
 CID=$(cat /tmp/dockerid.txt)
-if [[ -n "$CID" ]]; then
+
+if [[ -n "$CID" && "$CID" != *"Error"* ]]; then
   echo
   echo "✅ Container xray-$NAME berjalan!"
   echo "   → SSH: ssh root@$(curl -s ifconfig.me) -p $PORT"
   echo
-  echo "{\"name\":\"$NAME\",\"port\":\"$PORT\",\"domain\":\"$DOMAIN\",\"password\":\"$PASS\"}" >> "$PROFILE_FILE"
+
+  if [[ ! -s "$PROFILE_FILE" ]]; then
+    echo "[" > "$PROFILE_FILE"
+  fi
+
+  echo "{\"name\":\"$NAME\",\"port\":\"$PORT\",\"domain\":\"$DOMAIN\",\"password\":\"$PASS\"}," >> "$PROFILE_FILE"
+  sed -i '$ s/,$/]/' "$PROFILE_FILE"
 else
   echo "❌ Gagal menjalankan container."
+  cat /tmp/dockerid.txt
 fi
 }
 
