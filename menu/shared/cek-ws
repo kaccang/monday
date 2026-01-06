@@ -11,6 +11,7 @@ case "$nama" in
   troy5)  anchor="#troy5$";  prefix="##2" ;;
   rayvm1) anchor="#rayvm1$"; prefix="##3" ;;
   hafiz1) anchor="#hafiz1$"; prefix="##4" ;;
+  irfan5) anchor="#irfan5$"; prefix="##5" ;;
   *)      anchor="#vmess$";  prefix="###" ;;
 esac
 
