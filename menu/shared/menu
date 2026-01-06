@@ -43,6 +43,7 @@ case "$HOSTNAME" in
   troy5)  PREFIX="##2" ;;
   rayvm1) PREFIX="##3" ;;
   hafiz1) PREFIX="##4" ;;
+  irfan5) PREFIX="##5" ;;
   *)      PREFIX="###" ;;
 esac
 
