@@ -28,6 +28,11 @@ case "$nama" in
     base_path="/vmess"
     sub_category=""
     ;;
+  irfan5)
+    anchor="#irfan5$"; prefix="##5"
+    base_path="/vmess"
+    sub_category=""
+    ;;
   *)
     anchor="#vmess$"; prefix="###"
     base_path="/vmess"
