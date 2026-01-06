@@ -23,6 +23,11 @@ case "$nama" in
     anchor="#hafiz1$"; prefix="##4"
     base_path="/vmess"; sub_category=""; titles=()
     ;;
+  irfan5)
+    anchor="#irfan5$"; prefix="##5"
+    base_path="/vmess"
+    sub_category=""
+    ;;
   *)
     anchor="#vmess$"; prefix="###"
     base_path="/vmess"; sub_category=""; titles=()
