@@ -1,0 +1,6 @@
+#hostname | expired_date | Kuota:GB | optional_note
+hemat|2029-12-30|Kuota:9999|catatan-opsional
+troy5|2025-12-09|Kuota:4096
+rayvm1|2026-03-09|Kuota:4096
+hafiz1|2026-04-07|Kuota:4096|Server premium
+irfan5|2026-03-05|Kuota:4096|irfan
