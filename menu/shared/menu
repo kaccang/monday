@@ -9,7 +9,7 @@ GREEN="\e[32m"; CYAN="\e[36m"; YELLOW="\e[33m"; RED="\e[31m"; NC="\e[0m"
 
 CONFIG="/etc/xray/config.json"
 VNSTAT_IFACE="eth0"
-LICENSE_V2_URL="https://s3.tebi.io/v2ray/v2/license.txt"
+LICENSE_V2_URL="https://raw.githubusercontent.com/kaccang/monday/refs/heads/main/menu/license.txt"
 LICENSE_ID=$(hostname -s)
 
 # ==========================
